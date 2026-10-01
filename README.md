@@ -1,7 +1,20 @@
-This boilerplate is a simple example of how to build a simple Objective-C 2.0 project on Linux with GNUstep,
-and macOS with Apple frameworks.
+# NSURLSessionWebSocketTask Test Suite
 
-## GNUstep
+This repository contains a small conformance test suite and a stress test for
+the WebSocket implementation in NSURLSession.
+
+Because the official API documentation is rather sparse, I build the test suite
+and checks with initial assumption, that I then validated on MacOS 15.7.2.
+
+## Dependencies
+
+You need a recent version of python and create a venv by running `sh
+create-venv.sh`.
+
+### Linux
+- A working GNUstep installation with Objective-C 2.0 support (libobjc2, gnustep-make, gnustep-base).
+  Please note that as of writing this, the GNUstep debian packages do not support Objective-C 2.0, and use the GCC runtime.
+
 We use the GNUstep configuration tool `gnustep-config` to get the GNUstep and Objective-C specific compiler
 and linker flags.
 
@@ -14,21 +27,6 @@ you can source the script like this:
 ```bash
 source /usr/share/GNUstep/Makefiles/GNUstep.sh
 ```
-Note that the Makefiles directory might be located in a different place on your system, depending on your distribution.
-
-Meson also looks for CC, and OBJC environment variables to be set. Use clang as the compiler, as GCC does not
-support Objective-C 2.0.
-
-## Apple frameworks
-On macOS, meson will automatically find the Apple frameworks. Currently, only the Foundation framework is used,
-but you can add more frameworks by adding them to the modules array in `meson.build`.
-
-Be aware that some frameworks are not available on Linux, and you will need to use a different implementation.
-
-## Dependencies
-### Linux
-- A working GNUstep installation with Objective-C 2.0 support (libobjc2, gnustep-make, gnustep-base).
-  Please note that as of writing this, the GNUstep debian packages do not support Objective-C 2.0, and use the GCC runtime.
 
 ## Building
 First, setup the meson project and `build/` directory: 
@@ -40,10 +38,5 @@ OBJC=clang meson setup build
 You can now compile and execute the example program:
 ```bash
 ninja -C build
-./build/objc-boilerplate
-```
-
-If everything worked, you should see an output similar to this:
-```bash
-2023-10-16 11:28:06.806 objc-boilerplate[40560:40560] Hello, World!
+./build/objc-boilerplate venv/bin/python3 server/main.py ws://localhost:8080
 ```
