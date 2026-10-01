@@ -46,6 +46,7 @@ add_project_arguments(objc_flags, language: 'objc')
 source = [
     # Objc files
     'src/main.m',
+    'src/test.m',
 ]
 
 executable('objc-boilerplate', source, dependencies: dependencies_to_link)
