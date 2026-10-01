@@ -36,6 +36,7 @@
 	testTaskStateTransitions(_webSocketURL);
 	testMultipleSequentialReceives(_webSocketURL);
 	testRemoteClosure(_webSocketURL);
+	testMaximumMessageSize(_webSocketURL);
 
 	[self atExit];
 }

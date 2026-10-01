@@ -264,3 +264,39 @@ void testRemoteClosure(NSURL *webSocketURL) {
 
 	[session invalidateAndCancel];
 }
+
+void testMaximumMessageSize(NSURL *webSocketURL) {
+	NSURLSession *session;
+	NSURLSessionConfiguration *configuration;
+	NSURLSessionWebSocketTask *task;
+	NSURLSessionWebSocketMessage *webSocketMessage;
+
+	_Atomic(int) expectedAsyncTests = 2;
+	_Atomic(int) __block finishedAsyncTests = 0;
+
+	configuration = [NSURLSessionConfiguration defaultSessionConfiguration];
+	session = [NSURLSession sessionWithConfiguration:configuration];
+	task = [session webSocketTaskWithURL:webSocketURL];
+	webSocketMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:@"hello!"];
+
+	[task setMaximumMessageSize:4];
+	[task sendMessage:webSocketMessage
+		completionHandler:^(NSError *_Nullable sendError) {
+			PASS(sendError == nil, "no error occurred while sending a message");
+
+			[task receiveMessageWithCompletionHandler:^(
+					  NSURLSessionWebSocketMessage *_Nullable responseMessage,
+					  NSError *_Nullable responseError) {
+				PASS(responseError != nil, "response error is not nil");
+				finishedAsyncTests += 1;
+			}];
+
+			finishedAsyncTests += 1;
+		}];
+
+	[task resume];
+
+	WAIT_FOR_EXPR_MS(expectedAsyncTests == finishedAsyncTests, 2000 /* ms */,
+					 "all handlers called");
+	[session invalidateAndCancel];
+}
