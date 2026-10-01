@@ -106,16 +106,6 @@ static NSTask *createServerTask(int argc, const char *argv[], NSURL *url) {
 	[serverTask setStandardError:errorPipe];
 	[serverTask setStandardInput:inputPipe]; // Prevents stdin initialization crashes
 
-	// Optional: Read the output asynchronously
-	NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
-	outputHandle.readabilityHandler = ^(NSFileHandle *handle) {
-		NSData *data = handle.availableData;
-		if (data.length > 0) {
-			NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-			NSLog(@"Python output: %@", output);
-		}
-	};
-
 	serverTask =
 		[NSTask launchedTaskWithExecutableURL:pythonFileUrl
 									arguments:@[
