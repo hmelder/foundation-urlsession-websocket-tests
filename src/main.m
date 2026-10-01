@@ -37,6 +37,10 @@
 	testMultipleSequentialReceives(_webSocketURL);
 	testRemoteClosure(_webSocketURL);
 	testMaximumMessageSize(_webSocketURL);
+	testInvalidURLSchemeHandling();
+	testWebSocketDelegateCallbacks(_webSocketURL);
+	testRFC6455ZeroLengthPayloads(_webSocketURL);
+	testRFC6455CloseReasonPayloadLimit(_webSocketURL);
 
 	[self atExit];
 }

@@ -298,5 +298,167 @@ void testMaximumMessageSize(NSURL *webSocketURL) {
 
 	WAIT_FOR_EXPR_MS(expectedAsyncTests == finishedAsyncTests, 2000 /* ms */,
 					 "all handlers called");
+
+	PASS([task state] == NSURLSessionTaskStateCompleted,
+		 "overrun in internal buffer results in task completion");
+	PASS([task closeCode] == NSURLSessionWebSocketCloseCodeMessageTooBig, "close code is correct");
+	[session invalidateAndCancel];
+}
+
+void testInvalidURLSchemeHandling(void) {
+	NSURLSession *session;
+	NSURLSessionConfiguration *configuration;
+	NSURLSessionWebSocketTask *task;
+
+	configuration = [NSURLSessionConfiguration defaultSessionConfiguration];
+	session = [NSURLSession sessionWithConfiguration:configuration];
+
+	// Test non-WebSocket scheme (e.g. ftp:// or http:// without upgrade expectations)
+	NSURL *invalidURL = [NSURL URLWithString:@"ftp://127.0.0.1:8080/ws"];
+
+	// Task creation with non-ws/wss URLs should either return nil or fail during execution
+	@try {
+		task = [session webSocketTaskWithURL:invalidURL];
+	} @catch (...) {
+		PASS(task == nil, "task created with non-websocket scheme URL");
+	}
+
+	[session invalidateAndCancel];
+}
+
+// Delegate implementation to test NSURLSessionWebSocketDelegate callbacks
+@interface TestWebSocketDelegate : NSObject <NSURLSessionWebSocketDelegate>
+@property (nonatomic, assign) bool didOpen;
+@property (nonatomic, assign) bool didClose;
+@property (nonatomic, assign) NSURLSessionWebSocketCloseCode closeCode;
+@end
+
+@implementation TestWebSocketDelegate
+
+- (void)URLSession:(NSURLSession *)session
+		  webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask
+	didOpenWithProtocol:(NSString *)protocol {
+	self.didOpen = true;
+}
+
+- (void)URLSession:(NSURLSession *)session
+	   webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask
+	didCloseWithCode:(NSURLSessionWebSocketCloseCode)closeCode
+			  reason:(NSData *)reason {
+	self.didClose = true;
+	self.closeCode = closeCode;
+}
+
+@end
+
+void testWebSocketDelegateCallbacks(NSURL *webSocketURL) {
+	TestWebSocketDelegate *delegate = [[TestWebSocketDelegate alloc] init];
+	NSURLSessionConfiguration *configuration =
+		[NSURLSessionConfiguration defaultSessionConfiguration];
+
+	NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration
+														  delegate:delegate
+													 delegateQueue:nil];
+
+	NSURLSessionWebSocketTask *task = [session webSocketTaskWithURL:webSocketURL];
+	[task resume];
+
+	// Wait for didOpen delegate callback
+	WAIT_FOR_EXPR_MS(delegate.didOpen == true, 1000 /* ms */,
+					 "didOpenWithProtocol delegate callback triggered");
+
+	NSData *closeReason = [@"Normal test teardown" dataUsingEncoding:NSUTF8StringEncoding];
+	[task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:closeReason];
+
+	// Wait for didClose delegate callback
+	WAIT_FOR_EXPR_MS(delegate.didClose == true, 1000 /* ms */,
+					 "didCloseWithCode delegate callback triggered");
+	PASS(delegate.closeCode == NSURLSessionWebSocketCloseCodeNormalClosure,
+		 "close code matches expected normal closure");
+	[session invalidateAndCancel];
+}
+
+// RFC 6455 Section 5.5: Empty Control & Data Payloads
+// Messages and control frames with zero-length payloads must be handled validly without error.
+void testRFC6455ZeroLengthPayloads(NSURL *webSocketURL) {
+	NSURLSession *session = [NSURLSession
+		sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+	NSURLSessionWebSocketTask *task = [session webSocketTaskWithURL:webSocketURL];
+
+	_Atomic(int) expectedAsyncTests = 3;
+	_Atomic(int) __block finishedAsyncTests = 0;
+
+	// 1. Empty Text Message
+	NSURLSessionWebSocketMessage *emptyStringMsg =
+		[[NSURLSessionWebSocketMessage alloc] initWithString:@""];
+	PASS(emptyStringMsg != nil, "empty string message created");
+
+	// 2. Empty Data Message
+	NSURLSessionWebSocketMessage *emptyDataMsg =
+		[[NSURLSessionWebSocketMessage alloc] initWithData:[NSData data]];
+	PASS(emptyDataMsg != nil, "empty data message created");
+
+	[task sendMessage:emptyStringMsg
+		completionHandler:^(NSError *error) {
+			PASS(error == nil, "RFC 6455: sent 0-byte text frame successfully");
+			finishedAsyncTests += 1;
+		}];
+
+	[task sendMessage:emptyDataMsg
+		completionHandler:^(NSError *error) {
+			PASS(error == nil, "RFC 6455: sent 0-byte binary frame successfully");
+			finishedAsyncTests += 1;
+		}];
+
+	// 3. Ping with 0-byte payload (sendPingWithPongReceiveHandler handles zero-payload pings)
+	[task sendPingWithPongReceiveHandler:^(NSError *_Nullable error) {
+		PASS(error == nil, "RFC 6455: empty ping received corresponding pong");
+		finishedAsyncTests += 1;
+	}];
+
+	[task resume];
+
+	WAIT_FOR_EXPR_MS(expectedAsyncTests == finishedAsyncTests, 1000 /* ms */,
+					 "RFC 6455 zero-length payload test completed");
+
+	[session invalidateAndCancel];
+}
+
+// RFC 6455 Section 5.5.1: Close Frame Reason Payload Limit
+// Control frame payload MUST NOT exceed 125 bytes. Since close code takes 2 bytes,
+// the reason payload string/data length MUST NOT exceed 123 bytes.
+void testRFC6455CloseReasonPayloadLimit(NSURL *webSocketURL) {
+	NSURLSession *session = [NSURLSession
+		sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+	NSURLSessionWebSocketTask *task = [session webSocketTaskWithURL:webSocketURL];
+
+	_Atomic(int) expectedAsyncTests = 1;
+	_Atomic(int) __block finishedAsyncTests = 0;
+
+	// Trigger connection
+	[task sendPingWithPongReceiveHandler:^(NSError *_Nullable error) {
+		// Generate 124-byte reason (1 byte beyond the 123-byte control payload limit)
+		NSMutableString *oversizedReasonStr = [NSMutableString string];
+		for (int i = 0; i < 124; i++) {
+			[oversizedReasonStr appendString:@"A"];
+		}
+		NSData *oversizedReason = [oversizedReasonStr dataUsingEncoding:NSUTF8StringEncoding];
+		// Canceling with >123 bytes reason should safely truncate or fail gracefully without
+		// crashing
+		[task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure
+						   reason:oversizedReason];
+
+		finishedAsyncTests += 1;
+	}];
+
+	[task resume];
+
+	PASS(task.state == NSURLSessionTaskStateCanceling
+			 || task.state == NSURLSessionTaskStateCompleted,
+		 "RFC 6455: close frame handled oversized close reason safely");
+
+	WAIT_FOR_EXPR_MS(expectedAsyncTests == finishedAsyncTests, 1000 /* ms */,
+					 "RFC 6455 close reason payload limit test completed");
+
 	[session invalidateAndCancel];
 }

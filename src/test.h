@@ -11,6 +11,11 @@ void testTaskStateTransitions(NSURL *webSocketURL);
 void testMultipleSequentialReceives(NSURL *webSocketURL);
 void testRemoteClosure(NSURL *webSocketURL);
 void testMaximumMessageSize(NSURL *webSocketURL);
+void testInvalidURLSchemeHandling(void);
+void testWebSocketDelegateCallbacks(NSURL *webSocketURL);
+
+void testRFC6455ZeroLengthPayloads(NSURL *webSocketURL);
+void testRFC6455CloseReasonPayloadLimit(NSURL *webSocketURL);
 
 // Stress tests
 
